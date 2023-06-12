@@ -9,8 +9,17 @@
 # --ed-above-threshold=correct \
 # --error-correct-cell  \
 # --log2stderr> whitelist.txt
+
+# umi_tools whitelist --stdin rawdata/AK-WTA_S14_R1_001.fastq.gz \
+# --method=umis \
+# --extract-method=regex \
+# --bc-pattern="(?P<cell_1>.{9})(?P<discard_1>.{12})(?P<cell_2>.{9})(?P<discard_2>.{13})(?P<cell_3>.{9})(?P<umi_1>.{8}).*" \
+# --set-cell-number=10000 \
+# --ed-above-threshold=correct \
+# --error-correct-cell  \
+# --log2stderr> whitelist_UMI.txt
 # 
-# whitelist = read.table("whitelist.txt",sep = "\t",header = F)
+# whitelist = read.table("whitelist_UMI.txt",sep = "\t",header = F)
 # plot(sort(log10(whitelist$V3),decreasing = T))
 # 
 # ################# Add cell barcode and UMI to read ID
@@ -41,6 +50,30 @@
 # salmon.rb -i list -a 60 -f /mnt/hdd/hdd/data/species/D.japonica/DjTrascriptome/DjTrascriptome.fasta
 
 ###################
+reads = read.table("whitelist.txt",row.names = 1)
+umis = read.table("whitelist_UMI.txt",row.names = 1)
+common = rownames(reads)[is.element(rownames(reads),rownames(umis))]
+common = colnames(seurat.intactTAS@assays$RNA@counts)
+reads = reads[common,]
+umis = umis[common,]
+plot(log10(sort(umis$V3,decreasing = T)))
+sum(reads$V3)
+sum(umis$V3)
+plot(reads$V3, umis$V3)
+mean(reads$V3)
+median(umis$V3/reads$V3)
+boxplot(umis$V3/reads$V3)
+data = data.frame("read.number" = reads$V3,"umi.count" = umis$V3)
+data = data[data$umi.count>200,]
+median(umis$V3/reads$V3)
+sd(umis$V3/reads$V3)
+library(ggplot2)
+pdf("figure/S2a.pdf")
+ggplot(data, aes(x =read.number, y = umi.count ))+
+  geom_point(alpha = 0.3)+
+  geom_smooth(se = 0)+
+  theme_bw()
+dev.off()
 # R
 ggColorHue <- function(n, l=65) {
   hues <- seq(15, 375, length=n+1)
@@ -240,6 +273,7 @@ save(seurat.intactTAS,markers.intactTAS,markers.intactTAS.original,file = "seura
 length(unique(markers.intactTAS$cluster))
 # one-step clustering performance
 seurat = seurat.intactTAS
+seurat = ScaleData(seurat)
 seurat = FindVariableFeatures(seurat)
 seurat = RunPCA(seurat)
 seurat = FindNeighbors(seurat)
@@ -281,7 +315,7 @@ g2 = ggplot(tmp2[,-2], aes(x = "1",y = value, fill = variable))+
   NoLegend()
 
 # Evaluation of clustering
-pdf("figure/FigS1AC.pdf",width = 10,heigh = 3)
+pdf("figure/FigS2bc.pdf",width = 10,heigh = 3)
 library(gridExtra)
 grid.arrange(g1,g2,ncol = 2, layout_matrix = matrix(c(rep(1,10),2),nrow = 1),top = "FindAllMarkers(seurat,logfc.threshold = 1,only.pos = T,min.pct = 0.5,verbose = F)")
 dev.off()
@@ -289,18 +323,43 @@ dev.off()
 
 # Heatmap for signature genes
 library(ggplot2)
-pdf("figure/Fig2A.pdf",width = 12)
-DoHeatmap(seurat.intactTAS,features = unique(markers.intactTAS$gene),lines.width = 3)+
-scale_fill_gradientn(colours = c("black","yellow"))+
-NoLegend()
+lineage.celltype = read.xlsx("TableS4.xlsx")
+
+seurat = seurat.intactTAS
+a = data.frame("a" = lineage.celltype$Major.cell.type[order(lineage.celltype$Major.cell.type)], "b" = lineage.celltype$Minor.cell.type[order(lineage.celltype$Major.cell.type)])
+write.csv(a,file = "tmp.csv",row.names = F)
+a = read.csv(file = "tmp.csv")
+Idents(seurat) = factor(Idents(seurat),levels = a[,2])
+
+pdf("figure/Fig3b.pdf",width = 12)
+DoHeatmap(seurat,features = unique(markers.intactTAS$gene),lines.width = 3,angle = 90)+
+  scale_fill_gradientn(colours = c("black","yellow"))+
+  NoLegend()
+# DoHeatmap(seurat.intactTAS,features = unique(markers.intactTAS$gene),lines.width = 3)+
+# scale_fill_gradientn(colours = c("black","yellow"))+
+# NoLegend()
 dev.off()
 
-pdf("figure/Fig2A-legend.pdf",width = 12)
+DoHeatmap(seurat.intactTAS,features = unique(markers.intactTAS$gene),lines.width = 3,group.by = "Major.cell.type")+
+  scale_fill_gradientn(colours = c("black","yellow"))+
+  NoLegend()
+
+pdf("figure/Fig3b-legend.pdf",width = 12)
 DoHeatmap(seurat.intactTAS,features = unique(markers.intactTAS$gene),lines.width = 3)+
   scale_fill_gradientn(colours = c("black","yellow"))
 dev.off()
 
-
+# rRNA percent
+library(openxlsx)
+seurat.intactTAS@meta.data$rRNA = PercentageFeatureSet(seurat.intactTAS,features = c("DjGI000022-001" , "DjGI006746-001" ) )
+pdf("figure/S2bc.pdf")
+boxplot(umis$V3/reads$V3)
+boxplot(PercentageFeatureSet(seurat.intactTAS,features = c("DjGI000022-001" , "DjGI006746-001" )))
+dev.off()
+VlnPlot(seurat.intactTAS,features = "rRNA",pt.size = 0)+NoLegend()+ggtitle("percent.rRNA")
+pdf("figure/S3a.pdf",width = 14,height = 3.5)
+VlnPlot(seurat.intactTAS,features = "rRNA",pt.size = 0)+NoLegend()+ggtitle("percent.rRNA")
+dev.off()
 # Calusulating cell cycling score
 library(openxlsx)
 cell.cycle = read.xlsx("/mnt/hdd/hdd/data/species/D.japonica/DjTrascriptome/known_marker_X-ray.xlsx",sheet = 2)
@@ -437,11 +496,11 @@ for(i in 1:length(list)){
   g = VlnPlot(seurat.intactTAS2,features = list[[i]][2])+NoLegend()+ggtitle(label = sprintf("%s (%s marker)",list[[i]][1],names(list)[i] ),subtitle = list[[i]][2])+xlab(NULL)
   g0 = c(g0,list(g))
 }
-pdf("figure/Fig2B.pdf",width = 15,height = 7)
+pdf("figure/Fig3c.pdf",width = 15,height = 7)
 wrap_plots(g0)
 dev.off()
 
-pdf("figure/FigS2.pdf",height = 5, width = 10)
+pdf("figure/FigS4.pdf",height = 5, width = 10)
 VlnPlot(seurat.intactTAS2,features = c("nCount_RNA","nFeature_RNA"),group.by = "major.cell.type",pt.size = 0)
 dev.off()
 
@@ -483,7 +542,7 @@ VlnPlot(seurat.intactTAS,features = known.gene[c("Djp2x-A"),]$DjID)+NoLegend()
 cell.posi = c("7","28","54","55","56","63")
 col = ggColorHue(length(levels(Idents(seurat.intactTAS))))
 col[(1:63)[!is.element(1:63,as.integer(cell.posi))]] = "white"
-pdf("figure/Fig4.pdf",width = 18, height = 14)
+pdf("figure/Fig4c.pdf",width = 18, height = 14)
 g4 = VlnPlot(seurat.intactTAS,features = c(known.gene[c("piwiA"),]$DjID),ncol = 1,pt.size = 0)+NoLegend()+ggtitle("piwiA")+scale_fill_manual(values = col)+NoLegend()
 g1 = VlnPlot(seurat.intactTAS,features = c(known.gene[c("Djp2x-A"),]$DjID),ncol = 1,pt.size = 0)+NoLegend()+ggtitle("p2x-A")
 g6 = VlnPlot(seurat.intactTAS,features = c(known.gene[c("tgs1"),]$DjID),ncol = 1,pt.size = 0)+NoLegend()+ggtitle("tgs1")
@@ -511,7 +570,7 @@ g4 = ggplot(tmp,aes(x = as.factor(Var2), y = rev(Var1), fill = value))+
   ylab(NULL)+
   theme_bw()+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, color = "black"))
-pdf("figure/Fig3B.pdf",width = 12,height = 7)
+pdf("figure/Fig4b.pdf",width = 12,height = 7)
 print(g4)
 dev.off()
 
@@ -532,7 +591,7 @@ g0 = VlnPlot(seurat.intactTAS,features = c(known.gene[c("Djcalu"),]$DjID),ncol =
 g5 = VlnPlot(seurat.intactTAS,features = c(known.gene[c("Djsyt"),]$DjID),ncol = 1,pt.size = 0)+NoLegend()+ggtitle("syt")+scale_fill_manual(values = col)
 g2 = VlnPlot(seurat.intactTAS,features = c("DjGI002326-001"),ncol = 1,pt.size = 0)+NoLegend()+ggtitle("cdh1")+scale_fill_manual(values = col)
 g3 = VlnPlot(seurat.intactTAS,features = c("DjGI009461-001"),ncol = 1,pt.size = 0)+NoLegend()+ggtitle("cdc42")+scale_fill_manual(values = col)
-pdf("figure/Fig3.pdf",width = 18, height = 14)
+pdf("figure/Fig4a.pdf",width = 18, height = 14)
 grid.arrange(g1,g6,g4,g5,g0,g2,g3,ncol = 1)
 dev.off()
 
@@ -543,6 +602,7 @@ seurat.X.ray = ScaleData(seurat.X.ray,do.scale = T,features = rownames(seurat.X.
 Idents(seurat.X.ray) = seurat.X.ray@meta.data$day
 markers.x = FindAllMarkers(seurat.X.ray,only.pos = T)
 markers.x = markers.x %>%  arrange(-avg_log2FC, ) %>% arrange(cluster)
+
 library(openxlsx)
 ave.X = AverageExpression(seurat.X.ray,group.by = "day",slot = "data")
 data = data.frame("Contig" = DEG, "Day.after.irradiatuion" = ave.X$RNA[DEG,],"blast.result" = des[gsub("-","_",DEG),])
@@ -589,14 +649,14 @@ g5 = ggplot(tmp,aes(x = as.factor(Var2), y = Var1, fill = value))+
   ggtitle("bulkRNA-Seq")
 print(g5)
 
-pdf("figure/Fig5A.pdf", heigh = 7,width = 15)
+pdf("figure/Fig5a.pdf", heigh = 7,width = 15)
 print(g5|g4)
 dev.off()
 
 library(dplyr)
 gnl = markers.x[!is.na(des[markers.x$gene,]$SwissProt_name),] %>% group_by(cluster) %>% top_n(n = 5,wt = avg_log2FC)
 gnl = unique(gnl$gene)
-pdf("figure/Fig5B.pdf",width = 14)
+pdf("figure/Fig5b.pdf",width = 14)
 for(gn in gnl){
   g1 = VlnPlot(seurat.intactTAS,features = gn)+NoLegend()+ggtitle(NULL)+xlab(NULL)
   data = data.frame("Expression" = as.numeric(seurat.X.ray@assays$RNA@data[gn,]),"dpi" =seurat.X.ray@meta.data$day)
@@ -614,23 +674,26 @@ for(gn in gnl){
 }
 dev.off()
 
-pdf("figure/FigS4A.pdf")
-for(gn in c("piwiA","zfp-1","p53","prog-12")){
-  gid = known.gene[gn,]$DjID
-  data = data.frame("Expression" = as.numeric(seurat.X.ray@assays$RNA@data[gid,]),"dpi" =seurat.X.ray@meta.data$day)
-  ex = data$Expression
-  a = data %>% group_by(dpi) %>% summarise(mean(Expression))
-  g = ggplot(data, aes(x = dpi, y = Expression))+
-    geom_point()+
-    geom_line(data = data.frame("Expression" = a$`mean(Expression)`,"dpi" = unique(seurat.X.ray@meta.data$day)), col = "black")+
-    scale_x_continuous(breaks=unique(seurat.X.ray@meta.data$day))+
-    xlab("Days post irradiation")+
-    ggtitle(gn)+
-    theme_bw()
-  print(g)
-  
-}
-dev.off()
+# pdf("figure/FigS4A.pdf")
+# for(gn in c("piwiA","zfp-1","p53","prog-12")){
+#   gid = known.gene[gn,]$DjID
+#   data = data.frame("Expression" = as.numeric(seurat.X.ray@assays$RNA@data[gid,]),"dpi" =seurat.X.ray@meta.data$day)
+#   ex = data$Expression
+#   a = data %>% group_by(dpi) %>% summarise(mean(Expression))
+#   g = ggplot(data, aes(x = dpi, y = Expression))+
+#     geom_line(data = data.frame("Expression" = a$`mean(Expression)`,"dpi" = unique(seurat.X.ray@meta.data$day)), col = "black", size = 2)+
+#     geom_point(size = 4, color = "gray")+
+#     scale_x_continuous(breaks=unique(seurat.X.ray@meta.data$day))+
+#     xlab("Days post irradiation")+
+#     ylim(c(0,NA))+
+#     ggtitle(sprintf("Dj%s",gn))+
+#     theme_bw()+ theme(
+#   panel.background = element_rect(fill = "transparent", colour = "black"),
+#   panel.grid = element_blank())
+#   print(g)
+#   
+# }
+# dev.off()
 
 library(openxlsx)
 DEG = markers.x$gene
@@ -638,28 +701,78 @@ data = data.frame("Contig" = DEG, "Day.after.irradiation" = ave.X$RNA[DEG,],"Gro
 data$Group = c(rep(1,307),rep(1,20),rep(3,48), rep(4,7), rep(5, 15), rep(6,154))
 write.xlsx(data, file = "TbaleS4.xlsx",sep = "\t")
 
-# progenitor makers
-Ave.piwiA = AverageExpression(seurat.intactTAS,features = known.gene[c("piwiA"),]$DjID)
-Ave.piwiA = Ave.piwiA$RNA[1,]
-plot(Ave.piwiA)
-plot(sort(Ave.piwiA,decreasing = T))
-abline(v = seq(0,65,5))
-abline(h = 0.5)
-sum(Ave.piwiA[Ave.piwiA>0.5])
-# VlnPlot(seurat.intactTAS,features = c(known.gene[c("piwiA"),]$DjID),ncol = 1,pt.size = 0)+NoLegend()
-cells = names(seurat.intactTAS@active.ident)[is.element(seurat.intactTAS@active.ident,names(Ave.piwiA[Ave.piwiA>0.5]))]
-tmp0 = subset(seurat.intactTAS,cells = cells)
-VlnPlot(tmp,features = "nCount_RNA")
-DoHeatmap(tmp, features = known.gene$DjID)
-markers8 = NULL
-seurat.8 = subset(seurat.intactTAS,idents = "8")
-for(i in unique(tmp0@active.ident)[unique(tmp0@active.ident)!=8]){
-  tmp = subset(tmp0,idents = i)
-  tmp = merge(seurat.8,tmp)
-  tmp = FindAllMarkers(tmp,logfc.threshold = 2,only.pos = T)
-  markers8 = rbind(markers8,tmp)
-}
-length(unique(markers8$gene))
-DoHeatmap(tmp0,features = unique(markers8$gene))
-negative.markers = unique(markers8$gene)
-save(negative.markers,file = "/mnt/hdd/hdd/data/species/D.japonica/Seurat/markers.intactTAS.nNb")
+
+
+# Doublet check
+FeatureScatter(seurat.intactTAS,"nCount_RNA","nFeature_RNA")
+remotes::install_github('chris-mcginnis-ucsf/DoubletFinder')
+library(DoubletFinder)
+seurat.intactTAS = FindVariableFeatures(seurat.intactTAS)
+seurat.intactTAS = RunPCA(seurat.intactTAS)
+ElbowPlot(seurat.intactTAS,ndims = 50)
+seurat.intactTAS = RunUMAP(seurat.intactTAS,dims = 1:40)
+pdf("figure/2a.pdf",height  = 10)
+DimPlot(seurat.intactTAS)+theme(legend.position = "bottom")
+dev.off()
+sweep.list = paramSweep_v3(seurat.intactTAS,num.cores = 60)
+sweep.stats <- summarizeSweep(sweep.list, GT = FALSE)
+pK <- find.pK(sweep.stats)
+max.pK = pK$pK[pK$BCmetric==max(pK$BCmetric)]
+seurat.intactTAS = doubletFinder_v3(seurat.intactTAS,1:50,pK = as.numeric(as.character(max.pK)),nExp = length(seurat.intactTAS@active.ident)*0.05)
+seurat.intactTAS@meta.data$doublet_0.05 = as.numeric(as.factor(seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_170.2))
+
+seurat.intactTAS = doubletFinder_v3(seurat.intactTAS,1:50,pK = as.numeric(as.character(max.pK)),nExp = length(seurat.intactTAS@active.ident)*0.01)
+seurat.intactTAS@meta.data$doublet_0.01 = as.numeric(as.factor(seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_34.04))
+
+seurat.intactTAS = doubletFinder_v3(seurat.intactTAS,1:50,pK = as.numeric(as.character(max.pK)),nExp = length(seurat.intactTAS@active.ident)*0.1)
+seurat.intactTAS@meta.data$doublet_0.10 = as.numeric(as.factor(seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_340.4))
+
+VlnPlot(seurat.intactTAS,features = "doublet_0.01",pt.size = 0)+NoLegend()
+
+VlnPlot(seurat.intactTAS,features = "doublet_0.05",pt.size = 0)+NoLegend()
+VlnPlot(seurat.intactTAS,features = "doublet_0.10",pt.size = 0)+NoLegend()
+
+library(reshape2)
+library(ggplot2)
+pdf("figure/S3bc.pdf",width = 14)
+data = data.frame("minor.cell.type" = seurat.intactTAS@active.ident, "0.01" = seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_34.04, "0.05" = seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_170.2, "0.10" = seurat.intactTAS$DF.classifications_0.25_0.07_340.4)
+data = melt(data,id.vars = "minor.cell.type")
+g=ggplot(data, aes(x = minor.cell.type, fill = value))+
+  facet_wrap(~variable,nrow = 3)+
+  geom_bar()+
+  theme_bw()
+print(g)
+seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_34.04 = factor(seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_34.04,levels = c("Singlet","Doublet"))
+seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_170.2 = factor(seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_170.2,levels = c("Singlet","Doublet"))
+seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_340.4 = factor(seurat.intactTAS@meta.data$DF.classifications_0.25_0.07_340.4,levels = c("Singlet","Doublet"))
+s = subset(seurat.intactTAS,idents = 14)
+g1 = VlnPlot(s,group.by = "DF.classifications_0.25_0.07_340.4",features = "nCount_RNA")+ylim(0,NA)+ggtitle("Minor.cell.type.14_0.10")
+s = subset(seurat.intactTAS,idents = 15)
+g2 = VlnPlot(s,group.by = "DF.classifications_0.25_0.07_340.4",features = "nCount_RNA")+ylim(0,NA)+ggtitle("Minor.cell.type.15_0.10")
+s = subset(seurat.intactTAS,idents = 16)
+g3 = VlnPlot(s,group.by = "DF.classifications_0.25_0.07_340.4",features = "nCount_RNA")+ylim(0,NA)+ggtitle("Minor.cell.type.16_0.10")
+s = subset(seurat.intactTAS,idents = 17)
+g4 = VlnPlot(s,group.by = "DF.classifications_0.25_0.07_340.4",features = "nCount_RNA")+ylim(0,NA)+ggtitle("Minor.cell.type.17_0.10")
+g = g1 | g2 | g3 | g4
+print(g)
+dev.off()
+# seurat.intactTAS = RunUMAP(seurat.intactTAS,dims = 1:50)
+# g1 = DimPlot(seurat.intactTAS,group.by = c("ident"))
+# g2 = DimPlot(seurat.intactTAS,group.by = c("doublet_0.01","doublet_0.05","doublet_0.10"))
+# g1/g2
+
+load("/mnt/hdd/hdd/data/species/S.mediterranea/Fincher2018/seurat.smed")
+d.j = data.frame(species = "Dja","UMIs"=seurat.intactTAS@meta.data$nCount_RNA, "Detected.genes" = seurat.intactTAS@meta.data$nFeature_RNA)
+d.m = data.frame(species = "Sme","UMIs"=seurat.smed@meta.data$nCount_RNA, "Detected.genes" = seurat.smed@meta.data$nFeature_RNA)
+data = rbind(d.j, d.m)
+pdf("figure/S2d.pdf")
+ggplot()+
+  geom_point(data = d.m,aes(x = UMIs, y = Detected.genes, color = species))+
+  geom_point(data = d.j,aes(x = UMIs, y = Detected.genes, color = species))+
+  theme_bw()
+# ggplot(data = data,aes(x = UMIs, y = Detected.genes, color = species))+
+#   geom_point()+
+#   facet_wrap(~species,nrow = 2)+
+#   theme_bw()
+dev.off()
+
