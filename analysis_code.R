@@ -776,3 +776,22 @@ ggplot()+
 #   theme_bw()
 dev.off()
 
+seurat.ACME = readRDS("/mnt/hdd/hdd/data/species/D.japonica/ACME/seurat_ACME.rds")
+library(ggplot2)
+mean(seurat.ACME@meta.data$nCount_RNA)
+mean(seurat.ACME@meta.data$nFeature_RNA)
+
+data.this = data.frame("UMI" = seurat.intactTAS@meta.data$nCount_RNA,"nGene" = seurat.intactTAS@meta.data$nFeature_RNA,"dataset" = "this.data")
+data.1 = data.frame("UMI" = seurat.ACME@meta.data$nCount_RNA,"nGene" = seurat.ACME@meta.data$nFeature_RNA,"dataset" = "ACMI")
+data = rbind(data.this, data.1)
+data.1 = data.frame("UMI" = seurat.smed@meta.data$nCount_RNA,"nGene" = seurat.smed@meta.data$nFeature_RNA,"dataset" = "Smed")
+data = rbind(data, data.1)
+data$dataset = factor(data$dataset,levels = c("this.data", "Smed","ACMI"))
+g = ggplot(data, aes(x = UMI, y = nGene, color = dataset))+
+  geom_point()+
+  geom_point(data = data.this)+
+  theme_bw()+ NoLegend()
+
+pdf("figure/figS2d.pdf")
+print(g)
+dev.off()
